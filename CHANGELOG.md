@@ -1,5 +1,91 @@
 # Version 1.x
 
+## `1.0.0` 2020/5/22
+
+- `ContactOrBot` 现在继承 `CoroutineScope`
+- 在没有手动指定 `deviceInfo` 时构建 Bot 将会发出警告, 须手动选择使用 `randomDeviceInfo` 或 `fileBasedDeviceInfo` 或自定义, 详见 [BotConfiguration.kt: Lines 69-72](mirai-core/src/commonMain/kotlin/net.mamoe.mirai/utils/BotConfiguration.kt#L69-L72)
+<br />
+
+- 引入 `SimpleListenerHost` 以帮助 Java 处理事件监听
+- 添加 Java 广播事件的方式: `EventKt.broadcast(Event)`
+- 添加 `Bot.getInstanceOrNull`
+- 改进 JVM 平台的 `PlatformLogger`, 添加 `DirectoryLogger`, `SingleFileLogger` 以提供重定向日志的快捷方式
+- 统一日志格式, 使用 (正则) `^([\w-]*\s[\w:]*)\s(\w)\/(.*?):\s(.+)$`. 详见 [PlatformLogger.jvm.kt: Line 46](mirai-core/src/jvmMain/kotlin/net/mamoe/mirai/utils/PlatformLogger.jvm.kt#L46)
+
+<br />
+
+- 弃用 `Bot.queryUrl(Image)`, 改用 `image.queryUrl()` 扩展. (保留兼容到 1.2.0)
+- 弃用 `Bot.accept*`, `Bot.reject*` 等相应入群请求等事件的方法, 改用事件的成员函数. (保留兼容到 1.2.0)
+
+<br />
+
+- 修复 `Bot` 实例化时 `NPE` 问题
+- 修复网络状态差时 `Bot` 网络模块无法处理分包的问题
+- 修复当无 Bot 在线时调用 `image.queryUrl()` 抛出的异常与 KDoc 描述不符的问题
+- 修复 `BotJoinGroupEvent` 重复广播问题
+- 修复邀请 Bot 进群时事件处理异常的问题 (#319)
+- 修复当 `Event` 被实现为一个 Kotlin `object` 时无法正常拦截事件的问题
+- 修复图片链接获取为空的问题 (#318)
+- 修复成员被移除群后可能发生内存泄露的问题
+- 修复异常没有正确输出到日志的问题
+- 修复一些 `DefaultLogger` 的不恰当使用的问题
+- 修复 `UnknownHostException` 未被正常捕获的问题
+
+<br />
+
+- 在 Bot 被禁言时忽略 `reply` 方式创建的监听器 (`subscribeMessages` DSL)
+- 使用更宽松的方式读取 `device.json`
+- 将 `Bot.selfQQ` 标注 `@MiraiExperimentalAPI`
+- 提高默认心跳超时时间
+- 改进多处 KDoc
+- 更新 kotlinx-coroutines-core 到 1.3.7
+- ... 忽略了内部变动
+
+## `1.0-RC2-1` 2020/5/11
+修复一个 `VerifyError`
+
+## `1.0-RC2` 2020/5/11
+主要内容:
+- 增强网络稳定性 (#298, #317), 修复 `Bot.close` 或 Bot 离线后没有从 `Bot.botInstances` 中删除的问题 (#317)
+- `subscribeMessages` 现在默认使用 `MONITOR` 优先级
+- `MessageChain` 现在继承 `List<SingleMessage>`
+- 新增 `messageChainOf(vararg Message)`
+- 支持 Bot 头像更改事件: `BotAvatarChangedEvent` (#271)
+- 支持好友头像更改事件: `FriendAvatarChangedEvent`
+- 新增 `nextEventOrNull`: 挂起当前协程, 直到监听到事件的广播, 返回这个事件实例. 超时时返回 `null`
+- **弃用 `Bot.subscribe.*`, `Bot.nextMessage`, `Bot.subscribe.*Messages`:  
+  为了更好的协程生命周期管理, 这些函数已经被隐藏, 保留二进制兼容到 1.3.0**.  
+  现有源代码不会被破坏, 但将不再筛选事件的 `Bot` 实例. 在 mirai 决定好替代的 API 前需要手动筛选. (即不影响目前单 Bot 运行的服务)
+- 支持在事件监听时使用 Kotlin 函数引用:
+  ```kotlin
+  suspend fun onMessage(event: GroupMessageEvent): ListeningStatus {
+      return ListeningStatus.LISTENING
+  }
+  scope.subscribe(::onMessage /*, priority=..., concurrency=... */)
+  ```
+- 支持反射式事件监听, 改善 Java 的事件监听体验. 示例查看 [JvmMethodEventsTest.kt: Line 22](mirai-core/src/jvmTest/kotlin/net/mamoe/mirai/event/JvmMethodEventsTest.kt#L22)
+- 添加 `typealias EventPriority = Listener.EventPriority`
+- 优化 `Face` 的构造器: 现在 `Face` 拥有一个参数为 `id` 的公开构造器
+- 让 `ContactList` 实现接口 `Collection`
+- 弃用 `QuoteReply.time` 等语意不明的扩展 (无法区分 `time` 是 `source` 的时间还是 `QuoteReply` 自身时间)
+
+优化 & 修复:
+- 删除 `FileCacheStrategy.newImageCache(URL, format: String)` 中的 `format` 参数
+- 隐藏 `MessageChain` 原有 `Iterable` 相关 API (兼容现有代码)
+- 修复 `Message.repeat`
+- 修复 `MemberJoinEvent` 比 `MemberJoinRequestEvent` 早广播的问题 (#288)
+- 修复 Bot 接受好友申请时 groupId 处理错误 (#309)
+- 修复 `MessageSubscribersBuilder` 一处 KDoc 错误 (#308 @wuxianucw)
+- 修复 Android 平台 `BufferedImage ClassNotDefFound` 的问题
+- 优化 `MessageSource.internalId` KDoc
+- 优化 重连时的计时显示 (#311 @Karlatemp)
+- 优化 `Bot.getInstance` 找不到相关 `Bot` 实例时的异常信息
+- 将 `MessageMetadata.contentToString` 定义为 `final`
+- 忽略了 732 类型同步消息 (原启动后会大量显示)
+- 忽略 'VIP 进群提示' 的群同步消息
+- 让随机设备信息更随机
+- 其他一些内部优化 (无公开 API 变更)
+
 ## `1.0-RC`  2020/5/6
 
 ### 事件优先级与拦截

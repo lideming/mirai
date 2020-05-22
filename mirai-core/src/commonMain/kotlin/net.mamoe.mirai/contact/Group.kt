@@ -100,6 +100,7 @@ abstract class Group : Contact(), CoroutineScope {
      * 获取群成员实例. 不存在时抛出 [kotlin.NoSuchElementException]
      * 当 [id] 为 [Bot.id] 时返回 [botAsMember]
      */
+    @Throws(NoSuchElementException::class)
     abstract operator fun get(id: Long): Member
 
     /**
@@ -190,7 +191,6 @@ abstract class Group : Contact(), CoroutineScope {
     /**
      * @see quit
      */
-    @OptIn(MiraiInternalAPI::class)
     @Suppress("FunctionName")
     @JvmName("quit")
     @JavaFriendlyAPI

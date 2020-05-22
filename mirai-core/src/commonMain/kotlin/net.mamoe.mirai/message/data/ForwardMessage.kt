@@ -27,7 +27,7 @@ import kotlin.jvm.JvmSynthetic
 /**
  * 合并转发消息
  *
- * @param [displayStrategy] 卡片显示方案
+ *
  *
  * ### 显示方案
  *
@@ -72,9 +72,13 @@ import kotlin.jvm.JvmSynthetic
  * 咕咕咕
  * ```
  *
+ *
  * ### 构造
  * - 使用 [DSL][buildForwardMessage]
  * - 通过 [MessageEvent] 集合转换: [toForwardMessage]
+ *
+ *
+ * @param [displayStrategy] 卡片显示方案
  *
  * @see buildForwardMessage
  */
@@ -83,7 +87,7 @@ class ForwardMessage @JvmOverloads constructor(
      * 消息列表
      */
     val nodeList: Collection<INode>,
-    val displayStrategy: DisplayStrategy = DisplayStrategy
+    val displayStrategy: DisplayStrategy = DisplayStrategy.Default
 ) : MessageContent {
     init {
         require(nodeList.isNotEmpty()) {
@@ -190,12 +194,14 @@ fun Iterable<MessageEvent>.toForwardMessage(displayStrategy: DisplayStrategy = D
     val iterator = this.iterator()
     if (!iterator.hasNext()) return ForwardMessage(emptyList(), displayStrategy)
     return ForwardMessage(
-        this.map { ForwardMessage.Node(it.sender.id, it.time, it.senderName, it.message) }, displayStrategy)
+        this.map { ForwardMessage.Node(it.sender.id, it.time, it.senderName, it.message) }, displayStrategy
+    )
 }
 
 /**
  * 转换为 [ForwardMessage]
  */
+@JvmOverloads
 fun Message.toForwardMessage(
     sender: User,
     time: Int = currentTimeSeconds.toInt(),
@@ -272,6 +278,7 @@ annotation class ForwardMessageDsl
  * # 语法
  *
  * 下文中 `S` 代表消息发送人. 可接受: 发送人账号 id([Long] 或 [Int]) 或 [User]
+ *
  * 下文中 `M` 代表消息内容. 可接受: [String], [Message], 或 [构造消息链][MessageChainBuilder] 的 DSL 代码块
  *
  * ## 陈述一条消息
@@ -541,8 +548,6 @@ class ForwardMessageBuilder private constructor(
 
     /** 构造 [ForwardMessage] */
     fun build(): ForwardMessage = ForwardMessage(container.toList(), this.displayStrategy)
-
-    @OptIn(MiraiExperimentalAPI::class)
     internal fun Bot.smartName(): String = when (val c = this@ForwardMessageBuilder.context) {
         is Group -> c.botAsMember.nameCardOrNick
         else -> nick

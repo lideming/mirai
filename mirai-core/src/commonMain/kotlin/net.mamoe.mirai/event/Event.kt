@@ -11,12 +11,16 @@
 
 package net.mamoe.mirai.event
 
-import kotlinx.atomicfu.atomic
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import net.mamoe.mirai.JavaFriendlyAPI
 import net.mamoe.mirai.event.internal.broadcastInternal
 import net.mamoe.mirai.utils.MiraiExperimentalAPI
-import net.mamoe.mirai.utils.MiraiInternalAPI
-import net.mamoe.mirai.utils.PlannedRemoval
 import net.mamoe.mirai.utils.SinceMirai
+import net.mamoe.mirai.utils.internal.runBlocking
+import kotlin.jvm.JvmField
+import kotlin.jvm.JvmName
 import kotlin.jvm.JvmSynthetic
 import kotlin.jvm.Volatile
 
@@ -27,25 +31,37 @@ import kotlin.jvm.Volatile
  *
  * 所有 [Event] 都应继承 [AbstractEvent] 而不要直接实现 [Event]. 否则将无法广播也无法监听.
  *
+ * ### 广播
+ * 广播事件的唯一方式为 [broadcast].
+ *
  * @see subscribeAlways
  * @see subscribeOnce
  *
  * @see subscribeMessages
  *
  * @see [broadcast] 广播事件
- * @see [subscribe] 监听事件
+ * @see [CoroutineScope.subscribe] 监听事件
+ *
+ * @see CancellableEvent 可被取消的事件
  */
 interface Event {
     /**
      * 事件是否已被拦截.
      *
      * 所有事件都可以被拦截, 拦截后低优先级的监听器将不会处理到这个事件.
+     *
+     * @see intercept 拦截事件
      */
-    @SinceMirai("1.0.0")
     val isIntercepted: Boolean
 
     /**
      * 拦截这个事件
+     *
+     * 当事件被 [拦截][Event.intercept] 后, 优先级较低 (靠右) 的监听器将不会被调用.
+     *
+     * 优先级为 [Listener.EventPriority.MONITOR] 的监听器不应该调用这个函数.
+     *
+     * @see Listener.EventPriority 查看优先级相关信息
      */
     @SinceMirai("1.0.0")
     fun intercept()
@@ -66,7 +82,6 @@ interface Event {
  *
  * 在使用事件时应使用类型 [Event]. 在实现自定义事件时应继承 [AbstractEvent].
  */
-@SinceMirai("1.0.0")
 abstract class AbstractEvent : Event {
     @Suppress("WRONG_MODIFIER_CONTAINING_DECLARATION", "PropertyName")
     @get:JvmSynthetic // so Java user won't see it
@@ -74,9 +89,16 @@ abstract class AbstractEvent : Event {
     final override val DoNotImplementThisClassButExtendAbstractEvent: Nothing
         get() = throw Error("Shouldn't be reached")
 
+    /** 限制一个事件实例不能并行广播. (适用于 object 广播的情况) */
+    @JvmField
+    internal val broadCastLock = Mutex()
+
+    @JvmField
     @Volatile
-    private var _intercepted = false
-    private val _cancelled = atomic(false)
+    internal var _intercepted = false
+
+    @Volatile
+    private var _cancelled = false
 
     // 实现 Event
     /**
@@ -89,7 +111,6 @@ abstract class AbstractEvent : Event {
     /**
      * @see Event.intercept
      */
-    @SinceMirai("1.0.0")
     override fun intercept() {
         _intercepted = true
     }
@@ -98,7 +119,7 @@ abstract class AbstractEvent : Event {
     /**
      * @see CancellableEvent.isCancelled
      */
-    val isCancelled: Boolean get() = _cancelled.value
+    val isCancelled: Boolean get() = _cancelled
 
     /**
      * @see CancellableEvent.cancel
@@ -107,7 +128,7 @@ abstract class AbstractEvent : Event {
         check(this is CancellableEvent) {
             "Event $this is not cancellable"
         }
-        _cancelled.value = true
+        _cancelled = true
     }
 }
 
@@ -134,13 +155,39 @@ interface CancellableEvent : Event {
 
 /**
  * 广播一个事件的唯一途径.
+ *
+ * 当事件被实现为 Kotlin `object` 时, 同一时刻只能有一个 [广播][broadcast] 存在. 较晚执行的 [广播][broadcast] 将会挂起协程并等待之前的广播任务结束.
+ *
+ * @see __broadcastJava Java 使用
  */
-@OptIn(MiraiInternalAPI::class)
+@JvmSynthetic
 suspend fun <E : Event> E.broadcast(): E = apply {
+    check(this is AbstractEvent) {
+        "Events must extend AbstractEvent"
+    }
+
     if (this is BroadcastControllable && !this.shouldBroadcast) {
         return@apply
     }
-    this@broadcast.broadcastInternal() // inline, no extra cost
+    this.broadCastLock.withLock {
+        this._intercepted = false
+        this.broadcastInternal() // inline, no extra cost
+    }
+}
+
+/**
+ * 在 Java 广播一个事件的唯一途径.
+ *
+ * 调用方法: `EventKt.broadcast(event)`
+ */
+@Suppress("FunctionName")
+@JvmName("broadcast")
+@JavaFriendlyAPI
+fun <E : Event> E.__broadcastJava(): E = apply {
+    if (this is BroadcastControllable && !this.shouldBroadcast) {
+        return@apply
+    }
+    runBlocking { this@__broadcastJava.broadcast() }
 }
 
 /**
@@ -161,11 +208,3 @@ interface BroadcastControllable : Event {
         get() = true
 }
 
-
-@PlannedRemoval("1.1.0")
-@Deprecated(
-    "use AbstractEvent and implement CancellableEvent",
-    level = DeprecationLevel.ERROR,
-    replaceWith = ReplaceWith("AbstractEvent", "net.mamoe.mirai.event.AbstractEvent")
-)
-abstract class AbstractCancellableEvent : AbstractEvent(), CancellableEvent

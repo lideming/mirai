@@ -1,17 +1,31 @@
+/*
+ * Copyright 2020 Mamoe Technologies and contributors.
+ *
+ * 此源代码的使用受 GNU AFFERO GENERAL PUBLIC LICENSE version 3 许可证的约束, 可以在以下链接找到该许可证.
+ * Use of this source code is governed by the GNU AGPLv3 license that can be found through the following link.
+ *
+ * https://github.com/mamoe/mirai/blob/master/LICENSE
+ */
+
+@file:Suppress("INVISIBLE_MEMBER")
+
 package net.mamoe.mirai.qqandroid.network.protocol.packet.chat
 
 import kotlinx.io.core.ByteReadPacket
 import kotlinx.io.core.readBytes
 import net.mamoe.mirai.contact.Group
 import net.mamoe.mirai.event.events.BotInvitedJoinGroupRequestEvent
+import net.mamoe.mirai.event.events.BotLeaveEvent
 import net.mamoe.mirai.event.events.MemberJoinRequestEvent
 import net.mamoe.mirai.event.events.NewFriendRequestEvent
 import net.mamoe.mirai.qqandroid.QQAndroidBot
+import net.mamoe.mirai.qqandroid.message.contextualBugReportException
 import net.mamoe.mirai.qqandroid.network.Packet
 import net.mamoe.mirai.qqandroid.network.QQAndroidClient
 import net.mamoe.mirai.qqandroid.network.protocol.data.proto.Structmsg
 import net.mamoe.mirai.qqandroid.network.protocol.packet.OutgoingPacketFactory
 import net.mamoe.mirai.qqandroid.network.protocol.packet.buildOutgoingUniPacket
+import net.mamoe.mirai.qqandroid.utils._miraiContentToString
 import net.mamoe.mirai.qqandroid.utils.io.serialization.loadAs
 import net.mamoe.mirai.qqandroid.utils.io.serialization.writeProtoBuf
 
@@ -52,7 +66,7 @@ internal class NewContact {
                             struct.msgSeq,
                             msgAdditional,
                             struct.reqUin,
-                            Group.calculateGroupUinByGroupCode(groupCode),
+                            groupCode,
                             reqUinNick
                         )
                     }
@@ -134,36 +148,42 @@ internal class NewContact {
             readBytes().loadAs(Structmsg.RspSystemMsgNew.serializer()).run {
                 val struct = groupmsgs?.firstOrNull()
 
-                return if (struct == null) null else {
-                    struct.msg?.run<Structmsg.SystemMsg, Packet> {
-                        when (c2cInviteJoinGroupFlag) {
-                            1 -> {
-                                // 被邀请入群
-                                BotInvitedJoinGroupRequestEvent(
-                                    bot,
-                                    struct.msgSeq,
-                                    actionUin,
-                                    Group.calculateGroupUinByGroupCode(groupCode),
-                                    groupName,
-                                    actionUinNick
+                return if (struct == null) null else struct.msg?.run<Structmsg.SystemMsg, Packet> {
+                    //this.soutv("SystemMsg")
+                    when (subType) {
+                        1 -> { //管理员邀请
+                            when (c2cInviteJoinGroupFlag) {
+                                1 -> {
+                                    // 被邀请入群
+                                    BotInvitedJoinGroupRequestEvent(
+                                        bot, struct.msgSeq, actionUin,
+                                        groupCode, groupName, actionUinNick
+                                    )
+                                }
+                                0 -> {
+                                    // 成员申请入群
+                                    MemberJoinRequestEvent(
+                                        bot, struct.msgSeq, msgAdditional,
+                                        struct.reqUin, groupCode, groupName, reqUinNick
+                                    )
+                                }
+                                else -> throw contextualBugReportException(
+                                    "parse SystemMsgNewGroup, subType=1",
+                                    forDebug = this._miraiContentToString()
                                 )
                             }
-                            0 -> {
-                                // 成员申请入群
-                                MemberJoinRequestEvent(
-                                    bot,
-                                    struct.msgSeq,
-                                    msgAdditional,
-                                    struct.reqUin,
-                                    Group.calculateGroupUinByGroupCode(groupCode),
-                                    groupName,
-                                    reqUinNick
-                                )
-                            }
-                            else -> throw IllegalStateException("Unknown c2cInviteJoinGroupFlag: $c2cInviteJoinGroupFlag in SystemMsgNewGroup packet")
                         }
-                    } as Packet // 没有 as Packet 垃圾 kotlin 会把类型推断为Any
-                }
+                        5 -> {
+                            val group = bot.getGroup(groupCode)
+                            val operator = group[actionUin]
+                            BotLeaveEvent.Kick(operator)
+                        }
+                        else -> throw contextualBugReportException(
+                            "parse SystemMsgNewGroup",
+                            forDebug = this._miraiContentToString()
+                        )
+                    }
+                } as Packet // 没有 as Packet 垃圾 kotlin 会把类型推断为Any
             }
         }
 
@@ -185,7 +205,7 @@ internal class NewContact {
                                     true -> 11 // accept
                                     false -> 12 // reject
                                 },
-                                groupCode = Group.calculateGroupCodeByGroupUin(event.groupId),
+                                groupCode = event.groupId,
                                 msg = "",
                                 remark = "",
                                 blacklist = blackList

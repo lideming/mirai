@@ -11,7 +11,6 @@ package net.mamoe.mirai.event
 
 import kotlinx.coroutines.*
 import net.mamoe.mirai.event.internal.GlobalEventListeners
-import net.mamoe.mirai.utils.MiraiInternalAPI
 import net.mamoe.mirai.utils.StepUtil
 import net.mamoe.mirai.utils.internal.runBlocking
 import java.util.concurrent.Executor
@@ -19,7 +18,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertTrue
 
-class TestEvent : Event, AbstractEvent() {
+class TestEvent : AbstractEvent() {
     var triggered = false
 }
 
@@ -219,7 +218,6 @@ class EventTests {
     */
     fun resetEventListeners() {
         for (p in Listener.EventPriority.values()) {
-            @OptIn(MiraiInternalAPI::class)
             GlobalEventListeners[p].clear()
         }
     }

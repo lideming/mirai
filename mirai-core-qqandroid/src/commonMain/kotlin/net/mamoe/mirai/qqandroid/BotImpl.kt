@@ -7,76 +7,40 @@
  * https://github.com/mamoe/mirai/blob/master/LICENSE
  */
 
-@file:Suppress("EXPERIMENTAL_API_USAGE", "DEPRECATION_ERROR", "OverridingDeprecatedMember")
+@file:Suppress("EXPERIMENTAL_API_USAGE", "DEPRECATION_ERROR", "OverridingDeprecatedMember", "INVISIBLE_REFERENCE", "INVISIBLE_MEMBER")
 
-package net.mamoe.mirai
+package net.mamoe.mirai.qqandroid
 
 import kotlinx.coroutines.*
+import net.mamoe.mirai.Bot
+import net.mamoe.mirai.closeAndJoin
 import net.mamoe.mirai.event.Listener
 import net.mamoe.mirai.event.broadcast
 import net.mamoe.mirai.event.events.BotOfflineEvent
 import net.mamoe.mirai.event.events.BotReloginEvent
 import net.mamoe.mirai.event.subscribeAlways
-import net.mamoe.mirai.network.BotNetworkHandler
 import net.mamoe.mirai.network.ForceOfflineException
 import net.mamoe.mirai.network.LoginFailedException
-import net.mamoe.mirai.network.closeAndJoin
+import net.mamoe.mirai.qqandroid.network.BotNetworkHandler
+import net.mamoe.mirai.qqandroid.network.closeAndJoin
+import net.mamoe.mirai.supervisorJob
 import net.mamoe.mirai.utils.*
 import net.mamoe.mirai.utils.internal.retryCatching
 import kotlin.coroutines.CoroutineContext
 import kotlin.time.ExperimentalTime
 import kotlin.time.measureTime
 
-/*
- * 泛型 N 不需要向外(接口)暴露.
- */
-@OptIn(MiraiExperimentalAPI::class)
-@MiraiInternalAPI
-abstract class BotImpl<N : BotNetworkHandler> constructor(
+internal abstract class BotImpl<N : BotNetworkHandler> constructor(
     context: Context,
-    val configuration: BotConfiguration
-) : Bot(), CoroutineScope {
-    final override val coroutineContext: CoroutineContext =
-        configuration.parentCoroutineContext + SupervisorJob(configuration.parentCoroutineContext[Job]) +
-                (configuration.parentCoroutineContext[CoroutineExceptionHandler]
-                    ?: CoroutineExceptionHandler { _, e ->
-                        logger.error(
-                            "An exception was thrown under a coroutine of Bot",
-                            e
-                        )
-                    })
-
+    configuration: BotConfiguration
+) : Bot(configuration), CoroutineScope {
     override val context: Context by context.unsafeWeakRef()
 
     final override val logger: MiraiLogger by lazy { configuration.botLoggerSupplier(this) }
 
-    init {
-        instances.addLast(this.weakRef())
-    }
-
-    companion object {
-        @PublishedApi
-        internal val instances: LockFreeLinkedList<WeakRef<Bot>> = LockFreeLinkedList()
-
-        fun forEachInstance(block: (Bot) -> Unit) = instances.forEach {
-            it.get()?.let(block)
-        }
-
-        fun getInstance(qq: Long): Bot {
-            instances.forEach {
-                it.get()?.let { bot ->
-                    if (bot.id == qq) {
-                        return bot
-                    }
-                }
-            }
-            throw NoSuchElementException()
-        }
-    }
-
     // region network
 
-    final override val network: N get() = _network
+    val network: N get() = _network
 
     @Suppress("PropertyName")
     internal lateinit var _network: N
@@ -92,8 +56,15 @@ abstract class BotImpl<N : BotNetworkHandler> constructor(
     @Suppress("unused")
     private val offlineListener: Listener<BotOfflineEvent> =
         this@BotImpl.subscribeAlways(concurrency = Listener.ConcurrencyKind.LOCKED) { event ->
+            if (event.bot != this@BotImpl) {
+                return@subscribeAlways
+            }
+            if (!::_network.isInitialized) {
+                // bot 还未登录就被 close
+                return@subscribeAlways
+            }
             if (network.areYouOk() && event !is BotOfflineEvent.Force) {
-                // avoid concurrent re-login tasks
+                // network 运行正常
                 return@subscribeAlways
             }
             when (event) {
@@ -108,8 +79,10 @@ abstract class BotImpl<N : BotNetworkHandler> constructor(
 
                     val time = measureTime {
                         tailrec suspend fun reconnect() {
-                            retryCatching<Unit>(configuration.reconnectionRetryTimes,
-                                except = LoginFailedException::class) { tryCount, _ ->
+                            retryCatching<Unit>(
+                                configuration.reconnectionRetryTimes,
+                                except = LoginFailedException::class
+                            ) { tryCount, _ ->
                                 if (tryCount != 0) {
                                     delay(configuration.reconnectPeriodMillis)
                                 }
@@ -138,13 +111,14 @@ abstract class BotImpl<N : BotNetworkHandler> constructor(
                         reconnect()
                     }
 
-                    logger.info { "Reconnected successfully in ${time.inMilliseconds} ms" }
+                    logger.info { "Reconnected successfully in ${time.asHumanReadable}" }
                 }
                 is BotOfflineEvent.Active -> {
-                    val msg = if (event.cause == null) {
+                    val cause = event.cause
+                    val msg = if (cause == null) {
                         ""
                     } else {
-                        " with exception: " + event.cause.message
+                        " with exception: " + cause.message
                     }
                     bot.logger.info { "Bot is closed manually$msg" }
                     closeAndJoin(CancellationException(event.toString()))
@@ -155,6 +129,7 @@ abstract class BotImpl<N : BotNetworkHandler> constructor(
                 }
             }
         }
+
 
     /**
      * **Exposed public API**
@@ -240,16 +215,21 @@ abstract class BotImpl<N : BotNetworkHandler> constructor(
 
     init {
         coroutineContext[Job]!!.invokeOnCompletion { throwable ->
-            network.close(throwable)
+            kotlin.runCatching {
+                network.close(throwable)
+            }
             offlineListener.cancel(CancellationException("Bot cancelled", throwable))
 
+            // help GC release instances
+            groups.forEach {
+                it.members.delegate.clear()
+            }
             groups.delegate.clear() // job is cancelled, so child jobs are to be cancelled
             friends.delegate.clear()
-            instances.removeIf { it.get()?.id == this.id }
         }
     }
 
-    @OptIn(MiraiInternalAPI::class)
+
     override fun close(cause: Throwable?) {
         if (!this.isActive) {
             // already cancelled
@@ -258,14 +238,14 @@ abstract class BotImpl<N : BotNetworkHandler> constructor(
         this.launch {
             BotOfflineEvent.Active(this@BotImpl, cause).broadcast()
         }
+        logger.info { "Bot cancelled" + cause?.message?.let { ": $it" }.orEmpty() }
         if (cause == null) {
-            this.cancel()
+            supervisorJob.cancel()
         } else {
-            this.cancel(CancellationException("bot cancelled", cause))
+            supervisorJob.cancel(CancellationException("Bot closed", cause))
         }
     }
 }
-
 
 @RequiresOptIn(level = RequiresOptIn.Level.ERROR)
 internal annotation class ThisApiMustBeUsedInWithConnectionLockBlock

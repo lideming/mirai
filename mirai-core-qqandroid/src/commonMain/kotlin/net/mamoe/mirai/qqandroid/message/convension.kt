@@ -6,7 +6,7 @@
  *
  * https://github.com/mamoe/mirai/blob/master/LICENSE
  */
-@file: OptIn(MiraiExperimentalAPI::class, MiraiInternalAPI::class, LowLevelAPI::class, ExperimentalUnsignedTypes::class)
+@file:OptIn(LowLevelAPI::class)
 @file:Suppress("EXPERIMENTAL_API_USAGE")
 
 package net.mamoe.mirai.qqandroid.message
@@ -24,8 +24,6 @@ import net.mamoe.mirai.qqandroid.network.protocol.data.proto.MsgComm
 import net.mamoe.mirai.qqandroid.utils.*
 import net.mamoe.mirai.qqandroid.utils.io.serialization.loadAs
 import net.mamoe.mirai.qqandroid.utils.io.serialization.toByteArray
-import net.mamoe.mirai.utils.MiraiExperimentalAPI
-import net.mamoe.mirai.utils.MiraiInternalAPI
 import kotlin.contracts.ExperimentalContracts
 import kotlin.contracts.InvocationKind
 import kotlin.contracts.contract
@@ -36,7 +34,6 @@ private val UNSUPPORTED_POKE_MESSAGE_PLAIN = PlainText("[戳一戳]请使用最�
 private val UNSUPPORTED_FLASH_MESSAGE_PLAIN = PlainText("[闪照]请使用新版手机QQ查看闪照。")
 
 @Suppress("INVISIBLE_MEMBER", "INVISIBLE_REFERENCE")
-@OptIn(MiraiInternalAPI::class, MiraiExperimentalAPI::class)
 internal fun MessageChain.toRichTextElems(forGroup: Boolean, withGeneralFlags: Boolean): MutableList<ImMsgBody.Elem> {
     val elements = ArrayList<ImMsgBody.Elem>(this.size)
 
@@ -209,7 +206,6 @@ private val PB_RESERVE_FOR_PTT =
 private val PB_RESERVE_FOR_DOUTU = "78 00 90 01 01 F8 01 00 A0 02 00 C8 02 00".hexToBytes()
 private val PB_RESERVE_FOR_ELSE = "78 00 F8 01 00 C8 02 00".hexToBytes()
 
-@OptIn(ExperimentalUnsignedTypes::class, MiraiInternalAPI::class)
 internal fun MsgComm.Msg.toMessageChain(
     bot: Bot,
     groupIdOrZero: Long,
@@ -243,7 +239,6 @@ internal fun MsgComm.Msg.toMessageChain(
 
 // These two functions have difference method signature, don't combine.
 
-@OptIn(ExperimentalUnsignedTypes::class, MiraiInternalAPI::class)
 internal fun ImMsgBody.SourceMsg.toMessageChain(bot: Bot, groupIdOrZero: Long): MessageChain {
     val elements = this.elems!!
 
@@ -302,7 +297,6 @@ internal inline fun <reified R> Iterable<*>.firstIsInstanceOrNull(): R? {
 internal val MIRAI_CUSTOM_ELEM_TYPE = "mirai".hashCode() // 103904510
 
 @Suppress("INVISIBLE_REFERENCE", "INVISIBLE_MEMBER")
-@OptIn(MiraiInternalAPI::class, LowLevelAPI::class, ExperimentalStdlibApi::class)
 internal fun List<ImMsgBody.Elem>.joinToMessageChain(groupIdOrZero: Long, bot: Bot, list: MessageChainBuilder) {
     // (this._miraiContentToString())
     this.forEach { element ->

@@ -110,13 +110,12 @@ internal open class LockFreeLinkedList<E> {
         }
     }
 
-    open fun peekFirst(): E {
+    open fun peekFirst(): E? {
         return head
             .iterateBeforeFirst { it.isValidElementNode() }
             .takeUnless { it.isTail() }
             ?.nextNode
             ?.nodeValue
-            ?: throw NoSuchElementException()
     }
 
     open fun removeLast(): E {
@@ -797,7 +796,7 @@ internal open class Tail<E> : LockFreeLinkedListNode<E>(null, null) {
     override val nodeValue: Nothing get() = error("Internal error: trying to get the value of a Tail")
 }
 
-open class LockFreeLinkedListNode<E>(
+internal open class LockFreeLinkedListNode<E>(
     nextNode: LockFreeLinkedListNode<E>?,
     private val initialNodeValue: E?
 ) {
@@ -858,18 +857,9 @@ open class LockFreeLinkedListNode<E>(
 
 }
 
-fun <E> LockFreeLinkedListNode<E>.isRemoved() = this.removed.value
-
-@PublishedApi
-@Suppress("NOTHING_TO_INLINE")
+internal fun <E> LockFreeLinkedListNode<E>.isRemoved() = this.removed.value
 internal inline fun LockFreeLinkedListNode<*>.isValidElementNode(): Boolean = !isHead() && !isTail() && !isRemoved()
-
-@PublishedApi
-@Suppress("NOTHING_TO_INLINE")
 internal inline fun LockFreeLinkedListNode<*>.isHead(): Boolean = this is Head
-
-@PublishedApi
-@Suppress("NOTHING_TO_INLINE")
 internal inline fun LockFreeLinkedListNode<*>.isTail(): Boolean = this is Tail
 
 // end region
